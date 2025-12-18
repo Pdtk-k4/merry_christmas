@@ -6,6 +6,7 @@
     <meta name="viewport"
         content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Magic Christmas - Final Clean</title>
+    <video class="input_video" style="display:none" playsinline></video>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
@@ -142,6 +143,14 @@
         // 1. RESOURCES CONFIG Vandiep
         // ==========================================
         const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        function fixIphoneMirror(lm) {
+            return lm.map(p => ({
+                x: 1 - p.x,
+                y: p.y,
+                z: p.z
+            }));
+        }
+
         const MUSIC_URL = "./audio.mp3";
         let bgMusic = new Audio(MUSIC_URL);
         bgMusic.loop = true; bgMusic.volume = 1.0;
@@ -551,25 +560,50 @@
 
                 // --- Hand Logic  ---
                 if (results.multiHandLandmarks.length === 2) {
-                    const h1 = results.multiHandLandmarks[0]; const h2 = results.multiHandLandmarks[1];
+                    let h1 = results.multiHandLandmarks[0];
+                    let h2 = results.multiHandLandmarks[1];
+
+                    if (isMobile) {
+                        h1 = fixIphoneMirror(h1);
+                        h2 = fixIphoneMirror(h2);
+                    }
+
                     const distIndex = Math.hypot(h1[8].x - h2[8].x, h1[8].y - h2[8].y);
                     const distThumb = Math.hypot(h1[4].x - h2[4].x, h1[4].y - h2[4].y);
+
                     if (distIndex < 0.15 && distThumb < 0.15) {
-                        state = 'HEART'; return;
+                        state = 'HEART';
+                        return;
                     }
                 }
 
-                if (results.multiHandLandmarks.length > 0) {
-                    const lm = results.multiHandLandmarks[0];
-                    handX = lm[9].x;
-                    const tips = [8, 12, 16, 20]; const wrist = lm[0];
-                    let openDist = 0; tips.forEach(i => openDist += Math.hypot(lm[i].x - wrist.x, lm[i].y - wrist.y));
-                    const avgDist = openDist / 4;
-                    const pinchDist = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
 
-                    if (avgDist < 0.25) {
+                if (results.multiHandLandmarks.length > 0) {
+                    let lm = results.multiHandLandmarks[0];
+
+                    // ✅ FIX MIRROR FOR IPHONE
+                    if (isMobile) lm = fixIphoneMirror(lm);
+
+                    handX = lm[9].x;
+
+                    const tips = [8, 12, 16, 20];
+                    const wrist = lm[0];
+
+                    let openDist = 0;
+                    tips.forEach(i => {
+                        openDist += Math.hypot(lm[i].x - wrist.x, lm[i].y - wrist.y);
+                    });
+                    const avgDist = openDist / tips.length;
+
+                    const pinchDist = Math.hypot(
+                        lm[4].x - lm[8].x,
+                        lm[4].y - lm[8].y
+                    );
+
+                    // 🎯 MOBILE-FRIENDLY THRESHOLD
+                    if (avgDist < (isMobile ? 0.22 : 0.25)) {
                         state = 'TREE';
-                    } else if (pinchDist < 0.05) {
+                    } else if (pinchDist < (isMobile ? 0.08 : 0.05)) {
                         state = 'PHOTO';
                     } else {
                         state = 'EXPLODE';
@@ -577,15 +611,18 @@
                 } else {
                     state = 'TREE';
                 }
+
             });
 
             const cameraUtils = new Camera(video, {
                 onFrame: async () => {
                     await hands.send({ image: video });
                 },
+                facingMode: "user",
                 width: isMobile ? 240 : 320,
                 height: isMobile ? 180 : 240
             });
+
 
             cameraUtils.start();
         }
